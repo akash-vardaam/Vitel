@@ -1,0 +1,242 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+@font-face {
+  font-family: 'Syne';
+  src: url('/fonts/syne-400.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Syne';
+  src: url('/fonts/syne-500.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Syne';
+  src: url('/fonts/syne-600.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Syne';
+  src: url('/fonts/syne-700.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Syne';
+  src: url('/fonts/syne-800.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================
+   VITEL — Longevity Intelligence Brand Design System
+   Dark-first. Life-forward. Precision aesthetic.
+   All colors MUST be HSL.
+   ===================================================== */
+
+@layer base {
+  :root {
+    /* --- Backgrounds --- */
+    --background: 220 22% 5%;
+    --background-elevated: 220 20% 8%;
+    --background-card: 220 18% 10%;
+    --background-surface: 220 16% 13%;
+
+    /* --- Foreground --- */
+    --foreground: 210 20% 95%;
+    --foreground-muted: 215 12% 60%;
+    --foreground-subtle: 215 10% 40%;
+
+    /* --- Brand Primary: Bioluminescent Teal --- */
+    --primary: 170 48% 51%;
+    --primary-foreground: 220 22% 5%;
+    --primary-dim: 170 50% 30%;
+    --primary-glow: 170 60% 65%;
+
+    /* --- Accent: Vital Amber --- */
+    --accent: 36 100% 54%;
+    --accent-foreground: 220 22% 5%;
+    --accent-dim: 36 70% 30%;
+
+    /* --- Data: Vitae Rose --- */
+    --data-rose: 338 80% 62%;
+    --data-rose-dim: 338 60% 25%;
+
+    /* --- Semantic --- */
+    --secondary: 220 18% 14%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 220 16% 14%;
+    --muted-foreground: 215 12% 55%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 20% 98%;
+
+    /* --- Borders & Inputs --- */
+    --border: 220 15% 16%;
+    --border-bright: 170 40% 30%;
+    --input: 220 16% 14%;
+    --ring: 170 48% 51%;
+
+    /* --- Radius --- */
+    --radius: 0.75rem;
+
+    /* --- Gradients --- */
+    --gradient-hero: linear-gradient(135deg, hsl(220 22% 5%) 0%, hsl(220 22% 7%) 50%, hsl(190 40% 8%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(170 48% 51%), hsl(170 60% 62%));
+    --gradient-accent: linear-gradient(135deg, hsl(36 100% 54%), hsl(36 100% 66%));
+    --gradient-card: linear-gradient(145deg, hsl(220 18% 11%), hsl(220 16% 9%));
+    --gradient-glow-teal: radial-gradient(circle at 50% 0%, hsl(170 48% 51% / 0.15) 0%, transparent 65%);
+    --gradient-glow-amber: radial-gradient(circle at 50% 50%, hsl(36 100% 54% / 0.12) 0%, transparent 65%);
+
+    /* --- Shadows --- */
+    --shadow-sm: 0 1px 3px hsl(220 22% 2% / 0.6);
+    --shadow-md: 0 4px 16px hsl(220 22% 2% / 0.7);
+    --shadow-lg: 0 8px 32px hsl(220 22% 2% / 0.8);
+    --shadow-glow-primary: 0 0 24px hsl(170 48% 51% / 0.3);
+    --shadow-glow-accent: 0 0 20px hsl(36 100% 54% / 0.25);
+
+    /* --- Sidebar (dark) --- */
+    --sidebar-background: 220 22% 5%;
+    --sidebar-foreground: 210 20% 90%;
+    --sidebar-primary: 170 48% 51%;
+    --sidebar-primary-foreground: 220 22% 5%;
+    --sidebar-accent: 220 18% 12%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 220 15% 14%;
+    --sidebar-ring: 170 48% 51%;
+
+    /* --- Card (same as background-card) --- */
+    --card: 220 18% 10%;
+    --card-foreground: 210 20% 95%;
+    --popover: 220 18% 10%;
+    --popover-foreground: 210 20% 95%;
+  }
+
+  /* Force dark mode globally — dark-first */
+  html {
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Syne', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: normal;
+    font-stretch: normal;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Syne', system-ui, sans-serif;
+  }
+
+  .font-body {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .text-gradient-primary {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-accent {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-primary {
+    box-shadow: var(--shadow-glow-primary);
+  }
+
+  .glow-accent {
+    box-shadow: var(--shadow-glow-accent);
+  }
+
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
+
+  .border-gradient-primary {
+    border: 1px solid hsl(var(--primary) / 0.3);
+  }
+
+  .noise-overlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    opacity: 0.4;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--border)) 20%, hsl(var(--border-bright) / 0.5) 50%, hsl(var(--border)) 80%, transparent);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium font-body tracking-wide;
+    background: hsl(var(--background-surface));
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground-muted));
+  }
+
+  .chip-primary {
+    background: hsl(var(--primary) / 0.12);
+    border: 1px solid hsl(var(--primary) / 0.3);
+    color: hsl(var(--primary));
+  }
+
+  .chip-accent {
+    background: hsl(var(--accent) / 0.12);
+    border: 1px solid hsl(var(--accent) / 0.3);
+    color: hsl(var(--accent));
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    background: hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.4);
+  }
+}
