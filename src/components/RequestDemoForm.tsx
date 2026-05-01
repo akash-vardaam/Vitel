@@ -1,6 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 
+declare global {
+  interface Window {
+    grecaptcha?: {
+      ready: (callback: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+    };
+  }
+}
+
 const PRACTITIONER_TYPES = [
   "Medical Doctor (MD)",
   "Osteopathic Physician (DO)",
@@ -23,6 +32,8 @@ const PRACTITIONER_TYPES = [
 ];
 
 const CALENDLY_URL = "https://calendly.com";
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+const RECAPTCHA_SCRIPT_ID = "google-recaptcha-script";
 
 export default function RequestDemoForm() {
   const [name, setName] = useState("");
@@ -46,6 +57,43 @@ export default function RequestDemoForm() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
+  useEffect(() => {
+    if (!RECAPTCHA_SITE_KEY) {
+      return;
+    }
+
+    if (document.getElementById(RECAPTCHA_SCRIPT_ID)) {
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = RECAPTCHA_SCRIPT_ID;
+    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  }, []);
+
+  const getRecaptchaToken = async () => {
+    if (!RECAPTCHA_SITE_KEY) {
+      throw new Error("Missing reCAPTCHA site key configuration.");
+    }
+
+    const recaptcha = window.grecaptcha;
+    if (!recaptcha) {
+      throw new Error("reCAPTCHA has not loaded yet. Please try again.");
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      recaptcha.ready(() => {
+        recaptcha
+          .execute(RECAPTCHA_SITE_KEY, { action: "submit_demo_form" })
+          .then((token) => resolve(token))
+          .catch(() => reject(new Error("Unable to verify reCAPTCHA. Please try again.")));
+      });
+    });
+  };
+
   const toggleType = (t: string) => {
     setTypes((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
@@ -58,6 +106,8 @@ export default function RequestDemoForm() {
     setSubmitting(true);
 
     try {
+      const recaptchaToken = await getRecaptchaToken();
+
       const response = await fetch(new URL("submit.php", document.baseURI).toString(), {
         method: "POST",
         headers: {
@@ -69,13 +119,24 @@ export default function RequestDemoForm() {
           message,
           practice,
           practitionerTypes: types,
+          recaptchaToken,
         }),
       });
 
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.message || "Unable to submit your request right now.");
+        const details = Array.isArray(result.errorDetails)
+          ? result.errorDetails
+              .map((item: { code?: string; message?: string }) =>
+                item?.code && item?.message ? `${item.code}: ${item.message}` : null
+              )
+              .filter(Boolean)
+          : [];
+        const detailText = details.length > 0 ? ` ${details.join(" | ")}` : "";
+        throw new Error(
+          `${result.message || "Unable to submit your request right now."}${detailText}`
+        );
       }
 
       setSubmitted(true);

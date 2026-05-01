@@ -1,0 +1,15 @@
+{
+    "name": "vitel/site",
+    "description": "Vitel PHP mail backend",
+    "authors": [
+        {
+            "name": "Pragnesh Padhiyar",
+            "email": "ppadhiyar@vardaam.email"
+        }
+    ],
+    "require": {
+        "aws/aws-sdk-php": "^3.379",
+        "google/recaptcha": "^1.5",
+        "vlucas/phpdotenv": "^5.6"
+    }
+}
