@@ -26,11 +26,14 @@ const CALENDLY_URL = "https://calendly.com";
 
 export default function RequestDemoForm() {
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [practice, setPractice] = useState("");
+  const [message, setMessage] = useState("");
   const [types, setTypes] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,14 +52,47 @@ export default function RequestDemoForm() {
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     setSubmitting(true);
-    // Simulate fast submit
-    setTimeout(() => {
-      setSubmitting(false);
+
+    try {
+      const response = await fetch(new URL("submit.php", document.baseURI).toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          message,
+          practice,
+          practitionerTypes: types,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to submit your request right now.");
+      }
+
       setSubmitted(true);
-    }, 400);
+      setName("");
+      setEmail("");
+      setPractice("");
+      setMessage("");
+      setTypes([]);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Unable to submit your request right now."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -98,6 +134,21 @@ export default function RequestDemoForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Your name"
+          required
+          className="w-full bg-background-card/60 border border-border rounded-xl px-5 py-4 text-base text-foreground placeholder:text-foreground-subtle outline-none transition-all duration-200 focus:border-primary/60 focus:shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]"
+        />
+      </div>
+
+      <div>
+        <label className="block text-[10px] tracking-[0.25em] uppercase text-foreground-muted mb-3">
+          Email
+        </label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          required
           className="w-full bg-background-card/60 border border-border rounded-xl px-5 py-4 text-base text-foreground placeholder:text-foreground-subtle outline-none transition-all duration-200 focus:border-primary/60 focus:shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]"
         />
       </div>
@@ -188,6 +239,20 @@ export default function RequestDemoForm() {
         )}
       </div>
 
+      <div>
+        <label className="block text-[10px] tracking-[0.25em] uppercase text-foreground-muted mb-3">
+          Message
+        </label>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Tell us a little about what you want to see in the demo"
+          required
+          rows={5}
+          className="w-full resize-y bg-background-card/60 border border-border rounded-xl px-5 py-4 text-base text-foreground placeholder:text-foreground-subtle outline-none transition-all duration-200 focus:border-primary/60 focus:shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]"
+        />
+      </div>
+
       {/* Submit */}
       <div className="pt-4">
         <button
@@ -205,6 +270,9 @@ export default function RequestDemoForm() {
         <p className="text-center text-xs text-foreground-muted tracking-wide mt-5">
           We're currently onboarding a limited number of practitioners.
         </p>
+        {error && (
+          <p className="text-center text-sm text-red-400 mt-4">{error}</p>
+        )}
       </div>
     </form>
   );
