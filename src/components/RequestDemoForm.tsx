@@ -33,6 +33,7 @@ const PRACTITIONER_TYPES = [
 
 const CALENDLY_URL = "https://calendly.com";
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as string | undefined;
 const RECAPTCHA_SCRIPT_ID = "google-recaptcha-script";
 
 export default function RequestDemoForm() {
@@ -107,11 +108,16 @@ export default function RequestDemoForm() {
 
     try {
       const recaptchaToken = await getRecaptchaToken();
+      const submitUrl = new URL(
+        "submit.php",
+        API_BASE_URL?.trim() || document.baseURI
+      ).toString();
 
-      const response = await fetch(new URL("submit.php", document.baseURI).toString(), {
+      const response = await fetch(submitUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           name,
@@ -123,10 +129,25 @@ export default function RequestDemoForm() {
         }),
       });
 
-      const result = await response.json();
+      const rawBody = await response.text();
+      let result: {
+        success?: boolean;
+        code?: string;
+        status?: number;
+        message?: string;
+        errorDetails?: Array<{ code?: string; message?: string }>;
+      } | null = null;
 
-      if (!response.ok || !result.success) {
-        const details = Array.isArray(result.errorDetails)
+      if (rawBody) {
+        try {
+          result = JSON.parse(rawBody);
+        } catch {
+          result = null;
+        }
+      }
+
+      if (!result || !response.ok || !result.success) {
+        const details = Array.isArray(result?.errorDetails)
           ? result.errorDetails
               .map((item: { code?: string; message?: string }) =>
                 item?.code && item?.message ? `${item.code}: ${item.message}` : null
@@ -134,8 +155,13 @@ export default function RequestDemoForm() {
               .filter(Boolean)
           : [];
         const detailText = details.length > 0 ? ` ${details.join(" | ")}` : "";
+        const fallbackMessage = !rawBody
+          ? `Server returned an empty response (HTTP ${response.status}). Make sure the PHP backend endpoint is running.`
+          : `Server returned an invalid response format (HTTP ${response.status}).`;
+        const statusCode = result?.status ?? response.status;
+        const errorCodeText = result?.code ? ` [${result.code}]` : "";
         throw new Error(
-          `${result.message || "Unable to submit your request right now."}${detailText}`
+          `HTTP ${statusCode}${errorCodeText}: ${result?.message || fallbackMessage}${detailText}`
         );
       }
 

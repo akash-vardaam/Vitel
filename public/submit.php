@@ -6,113 +6,176 @@ use Dotenv\Dotenv;
 use ReCaptcha\ReCaptcha;
 use ReCaptcha\RequestMethod\CurlPost;
 use ReCaptcha\RequestMethod\Post;
+use Aws\Exception\AwsException;
+use Aws\Ses\SesClient;
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store');
+
+const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 
 if (is_file(__DIR__ . '/../.env')) {
     Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Only POST requests are allowed.',
-    ]);
-    exit;
+function envValue(string $key): string
+{
+    return trim((string) ($_ENV[$key] ?? ''));
 }
 
-$rawInput = file_get_contents('php://input');
-$data = json_decode($rawInput, true);
-
-if (!is_array($data)) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Invalid JSON payload.',
-    ]);
-    exit;
-}
-
-$name = trim((string) ($data['name'] ?? ''));
-$email = trim((string) ($data['email'] ?? ''));
-$message = trim((string) ($data['message'] ?? ''));
-$practice = trim((string) ($data['practice'] ?? ''));
-$practitionerTypes = $data['practitionerTypes'] ?? [];
-$recaptchaToken = trim((string) ($data['recaptchaToken'] ?? $data['g-recaptcha-response'] ?? ''));
-
-$recaptchaSecret = trim((string) ($_ENV['RECAPTCHA_SECRET_KEY'] ?? ''));
-$recaptchaExpectedHostname = trim((string) ($_ENV['RECAPTCHA_EXPECTED_HOSTNAME'] ?? ''));
-$recaptchaVerifyUrl = trim((string) ($_ENV['RECAPTCHA_VERIFY_URL'] ?? 'https://www.google.com/recaptcha/api/siteverify'));
-$recaptchaFallbackVerifyUrl = trim((string) ($_ENV['RECAPTCHA_FALLBACK_VERIFY_URL'] ?? 'https://www.recaptcha.net/recaptcha/api/siteverify'));
-$recaptchaExpectedAction = trim((string) ($_ENV['RECAPTCHA_EXPECTED_ACTION'] ?? 'submit_demo_form'));
-$recaptchaMinScoreRaw = trim((string) ($_ENV['RECAPTCHA_MIN_SCORE'] ?? '0.5'));
-$recaptchaMinScore = is_numeric($recaptchaMinScoreRaw) ? (float) $recaptchaMinScoreRaw : 0.5;
-
-if (!class_exists(ReCaptcha::class)) {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Missing reCAPTCHA backend dependency. Run composer install.',
-    ]);
-    exit;
-}
-
-if ($recaptchaSecret === '') {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Missing server reCAPTCHA configuration.',
-    ]);
-    exit;
-}
-
-if ($recaptchaToken === '') {
-    http_response_code(422);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Please complete reCAPTCHA verification.',
-    ]);
-    exit;
-}
-
-$buildCaptcha = static function (string $verifyUrl) use ($recaptchaSecret, $recaptchaExpectedHostname): ReCaptcha {
-    $requestMethod = function_exists('curl_version')
-        ? new CurlPost($verifyUrl)
-        : new Post($verifyUrl);
-
-    $captcha = new ReCaptcha($recaptchaSecret, $requestMethod);
-    if ($recaptchaExpectedHostname !== '') {
-        $captcha->setExpectedHostname($recaptchaExpectedHostname);
+/**
+ * @return array<int, string>
+ */
+function parseOrigins(string $raw): array
+{
+    if ($raw === '') {
+        return [];
     }
 
-    return $captcha;
-};
-
-$captchaClient = $buildCaptcha($recaptchaVerifyUrl);
-if ($recaptchaExpectedAction !== '') {
-    $captchaClient->setExpectedAction($recaptchaExpectedAction);
+    $parts = array_map(static fn($item): string => trim($item), explode(',', $raw));
+    return array_values(array_filter($parts, static fn($item): bool => $item !== ''));
 }
-$captchaClient->setScoreThreshold($recaptchaMinScore);
 
-$captcha = $captchaClient->verify($recaptchaToken, $_SERVER['REMOTE_ADDR'] ?? null);
-$errorCodes = $captcha->getErrorCodes();
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowedOrigins = parseOrigins(envValue('CORS_ALLOWED_ORIGINS'));
+if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: {$origin}");
+    header('Vary: Origin');
+}
+header('Access-Control-Allow-Headers: Content-Type, Accept');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
 
-if (
-    in_array(ReCaptcha::E_CONNECTION_FAILED, $errorCodes, true)
-    && $recaptchaFallbackVerifyUrl !== ''
-    && $recaptchaFallbackVerifyUrl !== $recaptchaVerifyUrl
-) {
-    $fallbackCaptchaClient = $buildCaptcha($recaptchaFallbackVerifyUrl);
-    if ($recaptchaExpectedAction !== '') {
-        $fallbackCaptchaClient->setExpectedAction($recaptchaExpectedAction);
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
+
+/**
+ * @param array<string, mixed> $payload
+ */
+function jsonResponse(int $status, array $payload): void
+{
+    if (!array_key_exists('status', $payload)) {
+        $payload['status'] = $status;
     }
-    $fallbackCaptchaClient->setScoreThreshold($recaptchaMinScore);
-    $captcha = $fallbackCaptchaClient->verify($recaptchaToken, $_SERVER['REMOTE_ADDR'] ?? null);
-    $errorCodes = $captcha->getErrorCodes();
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
-if (!$captcha->isSuccess()) {
+/**
+ * @param array<string, mixed> $extra
+ */
+function errorResponse(int $status, string $code, string $message, array $extra = []): void
+{
+    jsonResponse($status, array_merge([
+        'success' => false,
+        'code' => $code,
+        'message' => $message,
+    ], $extra));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function readRequestBody(): array
+{
+    $rawInput = file_get_contents('php://input');
+    $data = json_decode($rawInput ?: '', true);
+
+    if (!is_array($data)) {
+        errorResponse(400, 'INVALID_JSON', 'Invalid JSON payload.');
+    }
+
+    return $data;
+}
+
+/**
+ * @param array<string, mixed> $data
+ * @return array{0:string,1:string,2:string,3:string,4:array<int, string>,5:string}
+ */
+function validatePayload(array $data): array
+{
+    $name = trim((string) ($data['name'] ?? ''));
+    $email = trim((string) ($data['email'] ?? ''));
+    $message = trim((string) ($data['message'] ?? ''));
+    $practice = trim((string) ($data['practice'] ?? ''));
+    $practitionerTypes = $data['practitionerTypes'] ?? [];
+    $recaptchaToken = trim((string) ($data['recaptchaToken'] ?? $data['g-recaptcha-response'] ?? ''));
+
+    if ($name === '' || $email === '' || $message === '') {
+        errorResponse(422, 'VALIDATION_REQUIRED_FIELDS', 'Name, email, and message are required.');
+    }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        errorResponse(422, 'VALIDATION_EMAIL', 'Please provide a valid email address.');
+    }
+
+    if ($recaptchaToken === '') {
+        errorResponse(422, 'VALIDATION_RECAPTCHA', 'Please complete reCAPTCHA verification.');
+    }
+
+    $safeTypes = [];
+    if (is_array($practitionerTypes)) {
+        $safeTypes = array_values(array_filter(
+            array_map(static fn($type): string => trim((string) $type), $practitionerTypes),
+            static fn($type): bool => $type !== ''
+        ));
+    }
+
+    return [$name, $email, $message, $practice, $safeTypes, $recaptchaToken];
+}
+
+/**
+ * @return array{0:string,1:string,2:string,3:string,4:float}
+ */
+function readRecaptchaConfig(): array
+{
+    if (!class_exists(ReCaptcha::class)) {
+        errorResponse(500, 'RECAPTCHA_DEPENDENCY_MISSING', 'Missing reCAPTCHA backend dependency. Run composer install.');
+    }
+
+    $secret = envValue('RECAPTCHA_SECRET_KEY');
+    if ($secret === '') {
+        errorResponse(500, 'RECAPTCHA_SERVER_CONFIG_MISSING', 'Missing server reCAPTCHA configuration.');
+    }
+
+    $expectedHostname = envValue('RECAPTCHA_EXPECTED_HOSTNAME');
+    $expectedAction = envValue('RECAPTCHA_EXPECTED_ACTION');
+    if ($expectedAction === '') {
+        $expectedAction = 'submit_demo_form';
+    }
+
+    $minScoreRaw = envValue('RECAPTCHA_MIN_SCORE');
+    $minScore = is_numeric($minScoreRaw) ? (float) $minScoreRaw : 0.5;
+
+    return [$secret, $expectedHostname, $expectedAction, RECAPTCHA_VERIFY_URL, $minScore];
+}
+
+/**
+ * @return array{0:string,1:string,2:string,3:string,4:string}
+ */
+function readSesConfig(): array
+{
+    $region = envValue('AWS_REGION');
+    $accessKey = envValue('AWS_ACCESS_KEY_ID');
+    $secretKey = envValue('AWS_SECRET_ACCESS_KEY');
+    $fromEmail = envValue('AWS_SES_FROM_EMAIL');
+    $toEmail = envValue('AWS_SES_TO_EMAIL');
+
+    if ($region === '' || $accessKey === '' || $secretKey === '' || $fromEmail === '' || $toEmail === '') {
+        errorResponse(500, 'SES_CONFIG_MISSING', 'Missing SES configuration on server.');
+    }
+
+    return [$region, $accessKey, $secretKey, $fromEmail, $toEmail];
+}
+
+/**
+ * @param array<int, string> $errorCodes
+ * @return array<int, array{code:string, message:string}>
+ */
+function recaptchaErrorDetails(array $errorCodes): array
+{
     $errorMessages = [
         'missing-input-secret' => 'Server reCAPTCHA secret is missing.',
         'invalid-input-secret' => 'Server reCAPTCHA secret is invalid.',
@@ -138,77 +201,187 @@ if (!$captcha->isSuccess()) {
         ];
     }
 
-    http_response_code(422);
-    echo json_encode([
+    return $details;
+}
+
+function verifyRecaptcha(string $token, string $secret, string $expectedHostname, string $expectedAction, string $verifyUrl, float $minScore): void
+{
+    $requestMethod = function_exists('curl_version') ? new CurlPost($verifyUrl) : new Post($verifyUrl);
+    $captchaClient = new ReCaptcha($secret, $requestMethod);
+
+    if ($expectedHostname !== '') {
+        $captchaClient->setExpectedHostname($expectedHostname);
+    }
+    if ($expectedAction !== '') {
+        $captchaClient->setExpectedAction($expectedAction);
+    }
+    $captchaClient->setScoreThreshold($minScore);
+
+    $captcha = $captchaClient->verify($token, $_SERVER['REMOTE_ADDR'] ?? null);
+    if ($captcha->isSuccess()) {
+        return;
+    }
+
+    $errorCodes = $captcha->getErrorCodes();
+    if (in_array(ReCaptcha::E_CONNECTION_FAILED, $errorCodes, true)) {
+        // When verify endpoint is unreachable, action/score checks are secondary noise.
+        jsonResponse(502, [
+            'success' => false,
+            'code' => 'RECAPTCHA_UPSTREAM_UNREACHABLE',
+            'message' => 'reCAPTCHA verification failed: server could not reach Google verify endpoint.',
+            'errors' => [ReCaptcha::E_CONNECTION_FAILED],
+            'errorDetails' => recaptchaErrorDetails([ReCaptcha::E_CONNECTION_FAILED]),
+            'recaptcha' => [
+                'expectedAction' => $expectedAction,
+                'minScore' => $minScore,
+                'score' => null,
+                'action' => null,
+                'hostname' => null,
+            ],
+        ]);
+    }
+
+    jsonResponse(422, [
         'success' => false,
+        'code' => 'RECAPTCHA_VERIFICATION_FAILED',
         'message' => 'reCAPTCHA verification failed.',
         'errors' => $errorCodes,
-        'errorDetails' => $details,
+        'errorDetails' => recaptchaErrorDetails($errorCodes),
         'recaptcha' => [
-            'expectedAction' => $recaptchaExpectedAction,
-            'minScore' => $recaptchaMinScore,
+            'expectedAction' => $expectedAction,
+            'minScore' => $minScore,
             'score' => $captcha->getScore(),
             'action' => $captcha->getAction(),
             'hostname' => $captcha->getHostname(),
         ],
     ]);
-    exit;
 }
 
-if ($name === '' || $email === '' || $message === '') {
-    http_response_code(422);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Name, email, and message are required.',
+function sanitizeLine(string $value): string
+{
+    return preg_replace('/[\r\n]+/', ' ', $value) ?? $value;
+}
+
+function sanitizeEmail(string $value): string
+{
+    return preg_replace('/[\r\n]+/', '', $value) ?? $value;
+}
+
+function normalizeMessage(string $value): string
+{
+    return str_replace(["\r\n", "\r"], "\n", $value);
+}
+
+function sendSesEmail(
+    string $region,
+    string $accessKey,
+    string $secretKey,
+    string $fromEmail,
+    string $toEmail,
+    string $replyToEmail,
+    string $subject,
+    string $body
+): string {
+    $ses = new SesClient([
+        'version' => '2010-12-01',
+        'region' => $region,
+        'credentials' => [
+            'key' => $accessKey,
+            'secret' => $secretKey,
+        ],
     ]);
-    exit;
+
+    try {
+        $result = $ses->sendEmail([
+            'Source' => $fromEmail,
+            'Destination' => [
+                'ToAddresses' => [$toEmail],
+            ],
+            'ReplyToAddresses' => [$replyToEmail],
+            'Message' => [
+                'Subject' => [
+                    'Data' => $subject,
+                    'Charset' => 'UTF-8',
+                ],
+                'Body' => [
+                    'Text' => [
+                        'Data' => $body,
+                        'Charset' => 'UTF-8',
+                    ],
+                ],
+            ],
+        ]);
+    } catch (AwsException $exception) {
+        $response = [
+            'success' => false,
+            'code' => 'SES_SEND_FAILED',
+            'message' => 'Failed to send email via SES.',
+            'sesError' => $exception->getAwsErrorMessage() ?: $exception->getMessage(),
+            'sesErrorCode' => $exception->getAwsErrorCode(),
+            'sesRequestId' => $exception->getAwsRequestId(),
+        ];
+
+        jsonResponse(502, $response);
+    }
+
+    return (string) $result->get('MessageId');
 }
 
-if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-    http_response_code(422);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Please provide a valid email address.',
-    ]);
-    exit;
+if ($origin !== '' && !in_array($origin, $allowedOrigins, true)) {
+    errorResponse(403, 'ORIGIN_NOT_ALLOWED', 'Origin is not allowed for this endpoint.');
 }
 
-$typeList = '';
-if (is_array($practitionerTypes) && $practitionerTypes !== []) {
-    $safeTypes = array_map(static fn($type) => trim((string) $type), $practitionerTypes);
-    $safeTypes = array_filter($safeTypes, static fn($type) => $type !== '');
-    $typeList = implode(', ', $safeTypes);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    errorResponse(405, 'METHOD_NOT_ALLOWED', 'Only POST requests are allowed.');
 }
 
-/*
- * Optional mail() example.
- * Update $to and make sure your server is configured to send mail.
- */
-$mailSent = false;
-$to = 'discover@vitel.life';
+$requestData = readRequestBody();
+[$name, $email, $message, $practice, $types, $recaptchaToken] = validatePayload($requestData);
+[$recaptchaSecret, $recaptchaExpectedHostname, $recaptchaExpectedAction, $recaptchaVerifyUrl, $recaptchaMinScore] = readRecaptchaConfig();
+verifyRecaptcha(
+    $recaptchaToken,
+    $recaptchaSecret,
+    $recaptchaExpectedHostname,
+    $recaptchaExpectedAction,
+    $recaptchaVerifyUrl,
+    $recaptchaMinScore
+);
+
+[$awsRegion, $awsAccessKey, $awsSecretKey, $fromEmail, $toEmail] = readSesConfig();
+
+$typeList = implode(', ', $types);
+$cleanName = sanitizeLine($name);
+$cleanEmail = sanitizeEmail($email);
+$cleanPractice = sanitizeLine($practice);
+$cleanMessage = normalizeMessage($message);
+
 $subject = 'New Vitel demo request';
-$bodyLines = [
-    "Name: {$name}",
-    "Email: {$email}",
-    "Practice: {$practice}",
-    "Practitioner Types: {$typeList}",
+$body = implode("\n", [
+    "Name: {$cleanName}",
+    "Email: {$cleanEmail}",
+    "Practice: " . ($cleanPractice !== '' ? $cleanPractice : 'Not provided'),
+    "Practitioner Types: " . ($typeList !== '' ? $typeList : 'Not provided'),
     '',
     'Message:',
-    $message,
-];
-$body = implode("\n", $bodyLines);
-$headers = [
-    'From: no-reply@yourdomain.com',
-    "Reply-To: {$email}",
-    'Content-Type: text/plain; charset=UTF-8',
-];
+    $cleanMessage,
+]);
 
-if (function_exists('mail')) {
-    $mailSent = @mail($to, $subject, $body, implode("\r\n", $headers));
-}
+$messageId = sendSesEmail(
+    $awsRegion,
+    $awsAccessKey,
+    $awsSecretKey,
+    $fromEmail,
+    $toEmail,
+    $cleanEmail,
+    $subject,
+    $body
+);
 
-echo json_encode([
+jsonResponse(200, [
     'success' => true,
-    'message' => 'Your demo request has been received.',
-    'mailSent' => $mailSent,
+    'code' => 'REQUEST_ACCEPTED',
+    'message' => 'Your request has been received.',
+    'mailSent' => true,
+    'provider' => 'aws_ses',
+    'messageId' => $messageId,
 ]);
